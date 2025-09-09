@@ -1,0 +1,65 @@
+name: Douyin Bond Maintainer
+
+on:
+  schedule:
+    - cron: '0 5 * * *'  # 每天 UTC 5:00，即北京时间 13:00
+  workflow_dispatch:
+
+jobs:
+  bond:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install playwright
+          playwright install chromium
+
+      - name: Determine if V2RAY_CONFIG is set
+        run: |
+          if [ -n "${{ secrets.V2RAY_CONFIG }}" ]; then
+            echo "HAS_V2RAY=true" >> $GITHUB_ENV
+          else
+            echo "HAS_V2RAY=false" >> $GITHUB_ENV
+          fi
+
+      - name: Download and configure V2Ray
+        if: env.HAS_V2RAY == 'true'
+        run: |
+          curl -LO https://github.com/v2fly/v2ray-core/releases/latest/download/v2ray-linux-64.zip
+          unzip v2ray-linux-64.zip -d v2ray
+          echo "${{ secrets.V2RAY_CONFIG }}" | base64 --decode > v2ray/config.json
+
+      - name: Run V2Ray
+        if: env.HAS_V2RAY == 'true'
+        run: |
+          nohup ./v2ray/v2ray run -config ./v2ray/config.json &
+
+
+      - name: Store cookies into file
+        run: echo "${{ secrets.COOKIES }}" | base64 --decode > cookies.json
+
+      - name: Set environment variables
+        run: |
+          echo "NICKNAME=${{ secrets.NICKNAME }}" >> $GITHUB_ENV
+          echo "MSG=${{ secrets.MSG }}" >> $GITHUB_ENV
+          echo "PROXY=${{ secrets.PROXY }}" >> $GITHUB_ENV
+
+      - name: Run Douyin Bond Maintainer
+        run: python main.py
+
+      - name: Upload error screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: error-screenshot
+          path: error.png
